@@ -1,0 +1,82 @@
+1> How to deploy this complete code(in basic_bedrock.ipynb file code) on lambdaa function ?
+
+ans --> Open lamdaa function on the aws console 
+
+problem --> error --> No module named "langchain_aws"
+
+why this error --> because In the lamda function there are no   by default  python pakage install 
+
+solution --> Use Layers of lambdaa function (layers means use extra functionality) 
+1> now we make aws-lambda-layers folder  and then I make requirements.txt file  In the requirements.txt file I write dependencies --> langchain, langchain-aws 
+
+then --> go to terminal  and go to folder --> 
+then in the terminal I run this command -->
+ this command takes requirements.text pakage in the lamda folder (which mean ish command se saare pakage lambda function mai aajayenge )
+
+ this command --> Aapke setup (Ubuntu/WSL, folder aws-lambda-layer, Python 3.12, region eu-north-1) ke hisaab se command yeh hai.
+
+Step 1: requirements.txt check karo
+
+aws-lambda-layer folder ke andar:
+
+langchain
+langchain-aws
+
+Step 2: Folder mein jao aur command chalao
+
+bash
+cd ~/aws-bedrock-course/aws-lambda-layers
+
+pip install \
+  --platform manylinux2014_x86_64 \
+  --target python \
+  --implementation cp \
+  --python-version 3.12 \
+  --only-binary=:all: \
+  --upgrade \
+  -r requirements.txt
+
+--> After pakages install ho jaate hai ----> 
+then --> zip karte hai folder ko 
+--> use this command ---> 
+
+cd ~/aws-bedrock-course/aws-lambda-layers
+zip -r layer.zip python
+
+****Note ****
+Now zip file ko attach karnaa hai inside our lambdaa function 
+
+firt --> note that ish zip file ko s3 bucket mai (upload karnaa hogaa or save kar sakte hai like google drive) 
+****
+
+Now --> add layer --> in aws lambda function
+
+``` python 
+
+# this code in the aws lambdaa function 
+import json
+from langchain_aws import ChatBedrockConverse
+
+
+def lambda_handler(event, context):
+    llm = ChatBedrockConverse(
+        model="eu.anthropic.claude-sonnet-4-6",
+        region_name="eu-north-1",
+    )
+
+    question = event['question']
+    res = llm.invoke(question)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps(res.content)
+    }
+
+```
+
+Now  --> 
+ you take permision  to allow aws lambda for calling  aws bedrock 
+
+ How to take permision --> in the lambda function go --> to configure  option and then go to permision section  --> Role --> add permision --> Attach pollicies 
+
+ if same lambdaa function ko bedrock  ke alawa s3 bucket and other thing ke liye bhi use karenege  ---> then  permission assing is Admin policy

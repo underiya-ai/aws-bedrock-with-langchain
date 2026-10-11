@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# .env  file 
+.env
+
+cat >> .gitignore << 'EOF'
+
+# secrets and environments
+.env
+.venv/
+
+# Lambda layer build output
+aws-lambda-layers/python/
+aws-lambda-layers/layer.zip
+
+__pycache__/
+EOF
