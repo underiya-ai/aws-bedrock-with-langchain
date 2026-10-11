@@ -6,11 +6,20 @@ How to deploy the code from `basic_bedrock.ipynb` as an **AWS Lambda function** 
 
 ```mermaid
 flowchart LR
-    A[Test event / client<br/>{"question": "..."}] --> B[Lambda function]
-    L[Lambda Layer<br/>langchain + langchain-aws] -.provides packages.-> B
-    B -->|IAM execution role| C[Amazon Bedrock]
-    C --> D[Claude Sonnet 4.6]
-    B -.optional.-> S[(S3 bucket)]
+    A["Test event / client<br/>(question text)"] --> B["Lambda function"]
+    L["Lambda Layer<br/>langchain + langchain-aws"] -.->|provides packages| B
+    B -->|IAM execution role| C["Amazon Bedrock"]
+    C --> D["Claude Sonnet 4.6"]
+    B -.->|optional| S[("S3 bucket")]
+```
+
+```mermaid
+flowchart LR
+    F["Lambda function"] -->|assumes| R["IAM execution role"]
+    R --> P1["Policy: Bedrock access"]
+    R --> P2["Policy: S3 access<br/>only if needed"]
+    P1 --> BR["Amazon Bedrock"]
+    P2 --> S3[("S3 bucket")]
 ```
 
 ## Project structure
