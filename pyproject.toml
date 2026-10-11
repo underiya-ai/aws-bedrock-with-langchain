@@ -12,7 +12,9 @@ dependencies = [
     "langchain-aws",
     "langchain",
     "aws-bedrock-token-generator>=1.1.0",
-    "dotenv" 
+    "dotenv",
+    "langchain-groq"
+
 ]
 
 [project.scripts]

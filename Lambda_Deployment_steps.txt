@@ -1,0 +1,305 @@
+=====================================================================
+HOW TO MAKE AND DEPLOY AN AWS LAMBDA FUNCTION (LangChain + Groq)
+Step by step, in easy English
+Setup: Python 3.12, region eu-north-1 (Stockholm), Ubuntu / WSL
+=====================================================================
+
+
+PART 1: BUILD THE LAYER (PACKAGES)
+---------------------------------------------------------------------
+A Lambda function does not have "langchain" installed by default.
+So we put the packages in a LAYER (a zip file with extra packages).
+
+
+STEP 1: Create the folder and the package list
+
+Make a folder called aws-lambda-layers.
+Inside it, make a file called requirements.txt with this text:
+
+    langchain
+    langchain-groq
+
+
+STEP 2: Install the packages for Lambda
+
+Open the terminal, go to the aws-lambda-layers folder, and run:
+
+    cd ~/aws-bedrock-course/aws-lambda-layers
+
+    pip install \
+      --platform manylinux2014_x86_64 \
+      --target python \
+      --implementation cp \
+      --python-version 3.12 \
+      --only-binary=:all: \
+      --upgrade \
+      -r requirements.txt
+
+Notes:
+  - The folder name "python" is required. Lambda only looks for
+    layer packages in a folder with this exact name.
+  - If your function uses arm64, use manylinux2014_aarch64 instead.
+  - If "pip" is not found in a uv environment, use:
+
+        uv pip install \
+          --python-platform x86_64-manylinux2014 \
+          --python-version 3.12 \
+          --target python \
+          --only-binary :all: \
+          -r requirements.txt
+
+
+STEP 3: Make the zip file
+
+    zip -r layer.zip python
+
+The zip must have "python/" at the top level, like this:
+
+    layer.zip
+    +-- python/
+        +-- langchain/
+        +-- langchain_groq/
+        +-- ...
+
+Optional cleanup to make the zip smaller (run before zipping):
+
+    find python -name "__pycache__" -type d -exec rm -rf {} +
+
+If you build the zip again later, delete the old one first:
+
+    rm -rf python layer.zip
+
+Check that the package is inside the zip:
+
+    unzip -l layer.zip | grep -i langchain_groq | head -3
+
+
+STEP 4: Upload the zip to S3
+
+Open the S3 console (same region, eu-north-1), open your bucket,
+click Upload, and upload layer.zip. Copy its Object URL.
+
+If the zip is smaller than 50 MB, you can skip S3 and upload the
+zip directly in the next step.
+Limit: unzipped size must be below 250 MB.
+
+
+STEP 5: Create the layer
+
+1. Open Lambda, go to Layers, click Create layer.
+2. Give it a name.
+3. Paste the S3 URL (or upload the zip file).
+4. Compatible runtime: Python 3.12.
+5. Compatible architecture: x86_64.
+6. Click Create.
+
+
+PART 2: CREATE THE FUNCTION
+---------------------------------------------------------------------
+
+STEP 6: Create the function
+
+1. Open Lambda, click Create function, then Author from scratch.
+2. Give it a name.
+3. Runtime: Python 3.12. Architecture: x86_64.
+4. Click Create function.
+
+
+STEP 7: Attach the layer
+
+1. Open the function and scroll down to the Layers section.
+2. Click Add a layer, then Custom layers.
+3. Choose your layer and the version number, then click Add.
+
+If you make the zip again later, create a NEW VERSION of the layer
+and attach the new version number. A function never switches to a
+new layer version by itself.
+
+
+STEP 8: Write the code and Deploy
+
+Open lambda_function.py in the code editor and paste this:
+
+    import json
+    from langchain_groq import ChatGroq
+
+
+    def lambda_handler(event, context):
+        # Works from the Test button and from API Gateway
+        if isinstance(event.get("body"), str):
+            data = json.loads(event["body"])
+        else:
+            data = event
+
+        question = data.get("question")
+        if not question:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Missing 'question'"}),
+            }
+
+        llm = ChatGroq(model="openai/gpt-oss-120b")
+        res = llm.invoke(question)
+
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"answer": res.content}),
+        }
+
+Then click DEPLOY (or press Ctrl + Shift + U). Wait for the green
+message "Successfully updated the function".
+
+IMPORTANT: The Test button always runs the last DEPLOYED code, not
+the text you see in the editor. Always click Deploy before Test.
+
+Notes:
+  - The class name is ChatGroq (capital G). Python is case-sensitive.
+  - Model names can change. Check the exact model ID in the Groq
+    console (console.groq.com) if you get a "model not found" error.
+
+
+STEP 9: Change the settings
+
+Open the Configuration tab and set these three things:
+
+    Setting      Where                               Value
+    ----------   ---------------------------------   --------------------
+    API key      Environment variables -> Edit       Key: GROQ_API_KEY
+                                                     Value: your Groq key
+    Memory       General configuration -> Edit       512 MB
+    Timeout      General configuration -> Edit       30 seconds
+
+The default timeout is only 3 seconds. That is too short for an LLM
+call, and you will get "Task timed out after 3.00 seconds".
+
+The .env file on your laptop is NOT available in Lambda. That is why
+the key must be added as an environment variable here.
+
+
+STEP 10: Test inside Lambda
+
+1. Click the Test tab (or the Test button).
+2. Create a new event and use this JSON:
+
+    {
+      "question": "Tell me about machine learning"
+    }
+
+3. Click Test. You should see statusCode 200 and the answer in "body".
+
+The first run is slower. This is called a "cold start" (Lambda loads
+the packages). The next runs are faster.
+
+
+PART 3: CALL IT FROM OUTSIDE (POSTMAN)
+---------------------------------------------------------------------
+
+STEP 11: Add an API Gateway trigger
+
+1. Open Configuration, then Triggers, then Add trigger.
+2. Choose API Gateway.
+3. Choose HTTP API.
+4. Security: choose Open. Then click Add.
+5. Copy the API endpoint URL.
+
+If Security is AWS_IAM, Postman gets "403 Forbidden", because Postman
+does not send a signed AWS request. To fix it, open the API in API
+Gateway, go to Routes, select the route, and set Authorization to
+None. Or delete the trigger and add it again with Security = Open.
+
+
+STEP 12: Test in Postman
+
+1. Method: POST
+2. URL: your API endpoint
+3. Body: raw, type JSON:
+
+    {
+      "question": "Hey tell me about machine learning"
+    }
+
+4. Click Send.
+
+Why the code uses event["body"]:
+  - From the Test button, the JSON arrives directly in "event".
+  - From API Gateway, the JSON arrives as a STRING inside
+    event["body"]. The code in Step 8 handles both cases.
+
+
+COMMON ERRORS AND QUICK FIXES
+---------------------------------------------------------------------
+
+Error: No module named 'langchain_groq'
+Fix:   The layer is not attached, or an old layer version is attached.
+       Also check that the zip has python/ at the top level.
+
+Error: cannot import name 'Chatgroq' ...
+Fix:   Spelling. The class is ChatGroq (capital G).
+
+Error: The api_key client option must be set ... GROQ_API_KEY
+Fix:   Add GROQ_API_KEY in Configuration -> Environment variables.
+
+Error: Task timed out after 3.00 seconds
+Fix:   Set timeout to 30 seconds and memory to 512 MB.
+
+Error: 403 Forbidden in Postman
+Fix:   The API trigger uses AWS_IAM. Change Authorization to None
+       (Open), as shown in Step 11.
+
+Error: 500 Internal Server Error in Postman
+Fix:   Read the logs in CloudWatch. Often the code does not read
+       event["body"] (use the code from Step 8).
+
+Error: My code change does not work
+Fix:   You forgot to click Deploy. Test runs the deployed code only.
+
+
+IF YOU USE AMAZON BEDROCK INSTEAD OF GROQ
+---------------------------------------------------------------------
+1. Use langchain-aws in requirements.txt and this code:
+
+       from langchain_aws import ChatBedrockConverse
+
+       llm = ChatBedrockConverse(
+           model="eu.anthropic.claude-sonnet-4-6",
+           region_name="eu-north-1",
+       )
+
+2. No API key is needed inside Lambda. The function uses its IAM
+   execution role.
+3. Give the role permission: open the function, go to Configuration
+   -> Permissions, click the role name, then Add permissions ->
+   Attach policies, and attach AmazonBedrockFullAccess.
+4. If the same function also uses S3 or other services, attach a
+   policy for each service (for example AmazonS3FullAccess). For
+   quick learning you can attach AdministratorAccess, but it is NOT
+   safe for real projects.
+5. Your AWS account may still show "ValidationException: Operation
+   not allowed" until the AWS Support case is solved.
+
+
+SAFETY TIPS
+---------------------------------------------------------------------
+- Never put an API key in the code, in a README, or on GitHub.
+- Keep .env in .gitignore.
+- An open API URL can be used by anyone who knows it, and it uses
+  your Groq quota. Do not share the URL, and delete the trigger when
+  you finish learning.
+- If a key is ever exposed, delete it and create a new one.
+- For real projects, keep keys in AWS Secrets Manager and add
+  authorization to the API.
+
+
+QUICK CHECKLIST
+---------------------------------------------------------------------
+[ ] requirements.txt has langchain and langchain-groq
+[ ] Packages installed into python/ with the pip command
+[ ] layer.zip has python/ at the top level
+[ ] Layer created (Python 3.12, x86_64) and attached to the function
+[ ] Code pasted and DEPLOYED
+[ ] GROQ_API_KEY added in Environment variables
+[ ] Memory 512 MB and timeout 30 seconds
+[ ] Test event {"question": "..."} returns statusCode 200
+[ ] API Gateway trigger added with Security = Open
+[ ] Postman POST request returns an answer
